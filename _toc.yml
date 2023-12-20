@@ -7,11 +7,17 @@ parts:
   - caption: Exploration
     chapters:
     - file: pages/basic-exploration
+    - file: pages/comparison
     - file: pages/aviation-security
     - file: pages/exploration
   - caption: Analysis
     chapters:
     - file: pages/seasonal-changes
+    - file: pages/linear-regression
   - caption: Usage
     chapters:
     - file: pages/multi_index.Rmd
+  - caption: Incomplete analysis
+    chapters:
+    - file: pages/sankey_trial
+    - file: pages/MultiRegress
