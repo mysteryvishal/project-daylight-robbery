@@ -1,0 +1,87 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.15.2
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+# Seasonal Changes with Daylight Hours
+
+Out of curiousity, we wondered if there would be any correlation with the total number of crimes against the average number of sunlight hours for that given month.
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import plotly.express as px
+
+from projtools.data import Data
+
+data = Data()
+idx = pd.IndexSlice
+```
+
+## The datasets
+
+The data being used for this analysis are the Ward data set and the climate data from the [Met Office](https://www.metoffice.gov.uk/research/climate/maps-and-data/uk-climate-averages/gcpsvg3nc).
+
+```{python}
+df_DST_Crime = pd.DataFrame(data.ward.sum(), columns=['Offenses'])
+
+# setup heathrow dataframe
+df_heathrow = pd.read_csv('data/heathrow_48_23.csv')
+df_heathrow = df_heathrow[df_heathrow['year'] >= 2010]
+df_heathrow['month'] = df_heathrow['month'].astype(str).str.zfill(2)
+df_heathrow.set_index(['year', 'month'], inplace=True)
+# Convert sun(hours) to numeric
+df_heathrow['sun (hours)'] = pd.to_numeric(df_heathrow['sun (hours)'], errors='coerce')
+```
+
+```{python}
+df1 = df_DST_Crime.loc['2011':'2022']
+df2 = pd.DataFrame(df_heathrow.loc['2011':'2022', :]['sun (hours)'])
+df2.index = df2.index.set_levels([df2.index.levels[0].astype(str), df2.index.levels[1].astype(str)], level=[0, 1])
+```
+
+```{python}
+joined = df1.join(df2)
+```
+
+## Plotting the data
+
+```{python}
+px.line(joined.reset_index(inplace=False), x='sun (hours)', y='Offenses', color='year', hover_data=['month'], title='Average Monthly Sunshine Hours effecting crime between 2011 and 2022')
+```
+
+```{python}
+# 3d plot of each year
+fig = px.scatter_3d(
+    joined.reset_index(inplace=False), 
+    x='sun (hours)', 
+    y='Offenses', 
+    z='year', 
+    color='year', 
+    hover_data=['month'], 
+    title='Average Monthly Sunshine Hours effecting crime between 2011 and 2022'
+    )
+# make points smaller with white border
+fig.update_traces(marker=dict(size=5, line=dict(color='white', width=2)))
+fig.show()
+```
+
+```{python}
+# plotting each year separately with month labels on each point using plotly
+
+for year in joined.index.get_level_values(0).unique():
+    data = joined.loc[year]
+    fig = px.line(data.reset_index(inplace=False), x='sun (hours)', y='Offenses', hover_data=['month'], title=f'Year {year}')
+    fig.update_traces(marker=dict(size=5, line=dict(color='white', width=1)))
+    fig.show()
+```
