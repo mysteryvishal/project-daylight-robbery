@@ -21,3 +21,4 @@ parts:
     chapters:
     - file: pages/sankey_trial
     - file: pages/MultiRegress
+    - file: pages/daylight-hours
