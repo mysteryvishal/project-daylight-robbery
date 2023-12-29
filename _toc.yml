@@ -15,6 +15,7 @@ parts:
     - file: pages/seasonal-changes
     - file: pages/linear-regression
     - file: pages/weather_mr
+    - file: pages/climate-change
   - caption: Usage
     chapters:
     - file: pages/multi_index.Rmd
@@ -23,3 +24,5 @@ parts:
     - file: pages/sankey_trial
     - file: pages/MultiRegress
     - file: pages/daylight-hours
+  - caption: Tools
+    - file: pages/mapper_module

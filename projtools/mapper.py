@@ -34,7 +34,7 @@ class Mapper:
 
     def make_map(self):
 
-        vmin, vmax = 120, 220
+        vmin, vmax = self.df[self.variable].min(), self.df[self.variable].max()
         fig, ax = plt.subplots(1, figsize=(10, 6))
 
         # merging the dataframes
@@ -46,7 +46,7 @@ class Mapper:
         ax.axis('off')
         sm = plt.cm.ScalarMappable(cmap='Blues', norm=plt.Normalize(vmin=vmin, vmax=vmax))
         sm._A = []
-        cbar = fig.colorbar(sm)
+        # cbar = fig.colorbar(sm)
 
         ax.set_title(
             self.title,
