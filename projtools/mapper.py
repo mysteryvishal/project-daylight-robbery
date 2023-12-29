@@ -46,7 +46,7 @@ class Mapper:
         ax.axis('off')
         sm = plt.cm.ScalarMappable(cmap='Blues', norm=plt.Normalize(vmin=vmin, vmax=vmax))
         sm._A = []
-        cbar = fig.colorbar(sm)
+        # cbar = fig.colorbar(sm)
 
         ax.set_title(
             self.title,
