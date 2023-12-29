@@ -1,0 +1,179 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.15.2
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+# Mapper Module
+
+
+One idea was to be able to create interactive graphs using [Mapbox](https://www.mapbox.com/use-cases/data-visualization/).
+
+
+Due to time constraints and complications, a different approach was applied using the boundary data provided by [London Datastore](https://data.london.gov.uk/dataset/statistical-gis-boundary-files-london). This method involved using [Geopandas](https://pypi.org/project/geopandas/).
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import plotly.express as px
+import geopandas as gpd
+
+from projtools.data import Data
+from projtools.mapper import Mapper
+
+data = Data()
+idx = pd.IndexSlice
+```
+
+Building a dataframe containing indexed wards and values to be used by the module.
+
+The format would ideally be of this structure since the map dataframe by the London Datastore can only read by borough or wards.
+
+```{python}
+total_crime = data.ward.droplevel([1,2,3,4]) \
+    .groupby(level='ward_name').sum().T \
+    .groupby(level='year').sum().T
+total_crime.head()
+```
+
+Initally a Python function was developed to test the mapper function.
+
+```{python}
+fp = "mapshapes/London_Ward.shp"
+mapdf = gpd.read_file(fp)
+
+# renaming mapdf columns
+mapdf = mapdf.rename(columns={'NAME': 'ward_name', 'DISTRICT': 'borough'})
+# standardising borough names
+mapdf['borough'] = mapdf['borough'].replace('City of Westminster', 'Westminster')
+
+def mapper(
+    df: pd.DataFrame,
+    variable: str,
+    on: ['borough', 'ward_name'],
+    title: str,
+    caption: str,
+):
+    """Maps a dataframe to a map of London either by borough or ward_name.
+    
+    Args:
+        df (pd.DataFrame): dataframe to map
+        variable (str): column name of variable to map
+        on (borough', 'ward_name'): level to map on
+        title (str): title of map
+        caption (str): caption of map
+    """
+    # map setup
+    vmin, vmax = 0,100 #df[variable].min(), df[variable].max()
+    fig, ax = plt.subplots(1, figsize=(10, 6))
+
+    # merging the dataframes
+
+    merged = mapdf.merge(df, left_on=on, right_index=True)
+    
+
+    # plotting the map
+    merged.plot(column=variable, cmap='Blues', linewidth=0.8, ax=ax)
+    
+    ax.axis('off')
+    sm = plt.cm.ScalarMappable(cmap='Blues', norm=plt.Normalize(vmin=vmin, vmax=vmax))
+    sm._A = []
+    cbar = fig.colorbar(sm)
+
+    ax.set_title(
+        title, 
+        fontdict={'fontsize': '25', 'fontweight': '3'}
+    )
+    ax.annotate(
+        caption, 
+        xy=(0.1, .08), 
+        xycoords='figure fraction', 
+        horizontalalignment='left', 
+        verticalalignment='top', 
+        fontsize=12, 
+        color='#555555'
+    )
+```
+
+```{python}
+mapper(
+    df = total_crime,
+    variable = '2020',
+    on = 'ward_name',
+    title = ('Total Crime in 2020'),
+    caption = 'Source: London Datastore, 2014'
+)
+```
+
+With this function operating as intended. This mapping function was then remade into a module that would be part of the project tools.
+
+`projtools/mapper.py`
+
+```{python}
+class Mapper:
+    def __init__(self, df: pd.DataFrame, variable: str, on: ['borough', 'ward_name'], title: str, caption: str):
+        """Maps a dataframe to a map of London either by borough or ward_name.
+
+        Args:
+            df (pd.DataFrame): dataframe to map
+            variable (str): column name of variable to map
+            on (borough', 'ward_name'): level to map on
+            title (str): title of map
+            caption (str): caption of map
+        """
+        base = Path(__file__).parent.parent
+
+        # load the map data
+        self.df = df
+        self.variable = variable
+        self.on = on
+        self.title = title
+        self.caption = caption
+
+        # set up the map dataframe
+        self.mapdf = gpd.read_file(base / "mapshapes/London_Ward.shp").rename(columns={'NAME': 'ward_name', 'DISTRICT': 'borough'})
+        # standardising borough names
+        self.mapdf['borough'] = self.mapdf['borough'].replace('City of Westminster', 'Westminster')
+
+        # create the map
+        self.make_map()
+
+    def make_map(self):
+
+        vmin, vmax = 120, 220
+        fig, ax = plt.subplots(1, figsize=(10, 6))
+
+        # merging the dataframes
+        merged = self.mapdf.merge(self.df, left_on=self.on, right_index=True)
+
+        # plotting the map
+        merged.plot(column=self.variable, cmap='Blues', linewidth=0.8, ax=ax)
+
+        ax.axis('off')
+        sm = plt.cm.ScalarMappable(cmap='Blues', norm=plt.Normalize(vmin=vmin, vmax=vmax))
+        sm._A = []
+        cbar = fig.colorbar(sm)
+
+        ax.set_title(
+            self.title,
+            fontdict={'fontsize': '25', 'fontweight': '3'}
+        )
+        ax.annotate(
+            self.caption,
+            xy=(0.1, .08),
+            xycoords='figure fraction',
+            horizontalalignment='left',
+            verticalalignment='top',
+            fontsize=12,
+            color='#555555'
+        )
+```
