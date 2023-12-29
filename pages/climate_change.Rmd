@@ -1,0 +1,434 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.15.2
+  kernelspec:
+    display_name: Python 3 (ipykernel)
+    language: python
+    name: python3
+---
+
+# Climate Change and Crime
+
+
+This page is investigating whether climate change has any effect on the crime within London.
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.subplots as sp
+import plotly.graph_objects as go
+import scipy.stats as sps
+
+from projtools.data import Data
+from projtools.mapper import Mapper
+
+data = Data()
+idx = pd.IndexSlice
+```
+
+```{python}
+# setup heathrow dataframe
+df_heathrow = pd.DataFrame(pd.read_csv('../data/heathrow_48_23.csv'))
+
+# format and filter year and month columns
+df_heathrow = df_heathrow[(df_heathrow['year'] > 2010) & (df_heathrow['year'] < 2023)]
+df_heathrow['month'] = df_heathrow['month'].astype(str).str.zfill(2)
+
+# cast data types on columns
+df_heathrow['year'] = df_heathrow['year'].astype(str)
+df_heathrow['month'] = df_heathrow['month'].astype(str)
+df_heathrow['tmax (degC)'] = pd.to_numeric(df_heathrow['tmax (degC)'], errors='raise')
+df_heathrow['tmin (degC)'] = pd.to_numeric(df_heathrow['tmin (degC)'], errors='raise')
+df_heathrow['af days'] = pd.to_numeric(df_heathrow['af days'], errors='raise')
+df_heathrow['sun (hours)'] = pd.to_numeric(df_heathrow['sun (hours)'], errors='raise')
+
+# set multiindex
+df_heathrow.set_index(['year', 'month'], inplace=True)
+
+# rename columns
+df_heathrow.rename(
+    columns={
+        'tmax (degC)': 'tmax_degC',
+        'tmin (degC)': 'tmin_degC', 
+        'af days': 'airfrost_days',
+        'rain (mm)': 'rain_mm', 
+        'sun (hours)': 'sun_hours',
+    },
+    inplace=True)
+
+df_heathrow.sample(5)
+```
+
+## Investigating Max Temperature
+
+
+The code below showcases how the maximum yearly temperature is increasing year on year using linear regression.
+
+```{python}
+year_month = df_heathrow.index.get_level_values('year').astype(str) + '-' + df_heathrow.index.get_level_values('month').astype(str)
+```
+
+```{python}
+# define the independent variable
+X = range(len(year_month))
+
+# linear regression
+slope, intercept, _,_,_ = sps.linregress(X, df_heathrow['tmax_degC'])
+
+print("Slope:", slope)
+print("Intercept:", intercept)
+```
+
+The graph below showcases maximum monthly temperature over different years and months.
+
+```{python}
+px.line(x=year_month, y=df_heathrow['tmax_degC'], title='Heathrow Max Temperature (degC)', labels={'x': 'Date', 'y': 'Max Temperature (degC)'})
+```
+
+Using linear regression, we're able to plot a best-fit line that further that max-temperature over the years is actually increasing.
+
+```{python}
+fig = px.line(
+    x=year_month, y=df_heathrow['tmax_degC'], 
+    title='Heathrow Max Temperature (degC)', 
+    labels={'x': 'Date', 'y': 'Max Temperature (degC)'}
+)
+fig.add_scatter(x=year_month, y=(X*slope+intercept), name='Linear Regression').layout.update(showlegend=False)
+fig.show()
+```
+
+This can be further examined by exploring the maximum temperature per year (between 2011 and 2022).
+
+```{python}
+yearly_tmax = df_heathrow.groupby('year')['tmax_degC'].max()
+```
+
+```{python}
+# defining independent variable
+X = range(len(yearly_tmax))
+
+# linear regression
+slope, intercept, _,_,_ = sps.linregress(X, yearly_tmax)
+
+print("Slope:", slope)
+print("Intercept:", intercept)
+```
+
+```{python}
+# create a dataframe for yearly_tmax data
+df_yearly_tmax = pd.DataFrame({'year': yearly_tmax.index, 'tmax_degC': yearly_tmax.values})
+df_yearly_tmax['regression'] = X * slope + intercept
+
+# Plot the data and the regression line
+fig = px.line(
+    df_yearly_tmax, 
+    x='year', y=['tmax_degC', 'regression'], 
+    title='Yearly Max Temperature (degC)', 
+    labels={'year': 'Year', 'value': 'Max Temperature (degC)'}
+)
+fig.layout.update(showlegend=False)
+fig.show()
+
+```
+
+## Investigating Crime
+
+
+The code below produces linear regression statistics for each crime between 2011 and 2022. 
+
+In particular, this explores how crime changes over time, without any connection to maximum temperature. However, it is useful to see how the statistically significant crimes vary over time and the types of crime that are statistically significant when they are compared against maximum temperature.
+
+```{python}
+# list of crimes by ward
+crimes = data.ward.reset_index()['offence'].unique()
+# filtering out years without full 12-month data records
+crime_data = data.ward.loc[:,'2011':'2022'].droplevel(1)
+```
+
+```{python}
+crime_reg = pd.DataFrame(index=crimes, columns=['slope', 'intercept', 'p_value', 'r_value', 'std_err'])
+
+for crime in crimes:
+    crime_count = crime_data.loc[:,:,crime].droplevel(1).T.groupby('year').sum().T.sum()
+    X = range(len(crime_count))
+    slope, intercept, r_value, p_value, std_err = sps.linregress(X, crime_count)
+    crime_reg.loc[crime] = [slope, intercept, p_value, r_value, std_err]
+```
+
+```{python}
+# displaying statistically significant results (p-value < 0.05)
+crime_reg[crime_reg['p_value'] < 0.05].head()
+```
+
+## Investigating Crime and Temperature
+
+
+### By year
+
+
+*Note: The yearly aggregate values are a limitation here as the data is less informative and precise than using monthly aggregates.*
+
+```{python}
+df_yearly_crime_sum = crime_data.groupby('offence').sum().T.groupby('year').sum().reset_index().set_index('year')
+df_yearly_crime_sum.head()
+```
+
+```{python}
+# empty dataframe to store regression results
+df_yearly_crime_tmax = pd.DataFrame(index=crimes, columns=['slope', 'intercept', 'p_value', 'r_value', 'std_err'])
+
+# loop through crimes and calculate regression results
+for crime in crimes:
+    mixed = pd.DataFrame(df_yearly_crime_sum[crime])
+    mixed['tmax_degC'] = yearly_tmax
+    X = mixed['tmax_degC']
+    Y = mixed[crime]
+    slope, intercept, p_value, r_value, std_err = sps.linregress(X, Y)
+    df_yearly_crime_tmax.loc[crime] = [slope, intercept, p_value, r_value, std_err]
+```
+
+The code below is filtering statisically significant crimes when compared against the maximum temperature of the year.
+
+```{python}
+df_yearly_crime_tmax_ss = df_yearly_crime_tmax[(df_yearly_crime_tmax['p_value'] < 0.05) & (df_yearly_crime_tmax['p_value'] >= 0)]
+df_yearly_crime_tmax_ss
+```
+
+```{python}
+# Do subplots for each crime
+
+fig_yearly_crime_regs = px.line(
+    x = yearly_tmax,
+    labels = {'x': 'Max Temperature (degC)', 'y': 'Crime Count'}
+)
+for crime in df_yearly_crime_tmax_ss.index:
+    crime_reg_values = df_yearly_crime_tmax_ss.loc[crime]
+    fig_yearly_crime_regs.add_scatter(
+        x=yearly_tmax, 
+        y= crime_reg_values['slope']*yearly_tmax + crime_reg_values['intercept'], 
+        name=crime)
+
+fig_yearly_crime_regs.show()
+```
+
+```{python}
+fig = sp.make_subplots(rows=len(df_yearly_crime_tmax_ss.index), cols=1, subplot_titles=df_yearly_crime_tmax_ss.index)
+
+for i, crime in enumerate(df_yearly_crime_tmax_ss.index):
+    crime_reg_values = df_yearly_crime_tmax_ss.loc[crime]
+    fig.add_trace(
+        go.Scatter(
+            x=yearly_tmax, 
+            y=crime_reg_values['slope']*yearly_tmax + crime_reg_values['intercept'], 
+            name=crime
+        ), row=i+1, col=1
+    )
+
+fig.update_layout(height=600*len(df_yearly_crime_tmax_ss.index), title_text="Yearly Crime Subplots", showlegend=False)
+fig.show()
+```
+
+### By Month: Scatter Plotting Errors and Fitted Values
+
+```{python}
+def scatter_error(x, y, fitted, crime):
+    """
+    Function that takes x, y and fitted values and returns a scatter plot with errors.
+    Parameters
+    ---------------
+    x: array of predictor values
+    y: array of outcome values
+    fitted: array of fitted values
+    with errors: shows the error values
+    -----------------------------------
+    Returns:
+    Scatter graph with error values
+    """
+    plt.scatter(x, y, label='Actual values ($y$)')
+   
+    plt.plot(x, fitted, 'ro', label='Fitted values ($\hat{y}$)')
+    
+    n = len(x)
+    for i in range(n):
+        plt.plot([x[i], x[i]], [fitted[i], y[i]], 'k:')
+        
+    plt.plot([], [], 'k:', label='Errors ($ \\varepsilon $)')
+    
+    plt.ylabel(crime)
+    plt.xlabel('Predictor Variable')
+    
+    # for i, txt in enumerate(rain_df.Months):
+    #     plt.annotate(txt, (x[i], fitted[i]))
+    
+    plt.legend();
+    plt.show()
+```
+
+```{python}
+crime = 'Shoplifting'
+df_scatter_error = pd.DataFrame([crime_data.droplevel([0,1]).groupby('offence').sum().loc[crime,:], df_heathrow['tmax_degC']]).T
+df_scatter_error.index = ['-'.join(i) for i in df_scatter_error.index]
+```
+
+```{python}
+df_monthly_reg = pd.DataFrame(index=crimes, columns=['slope', 'intercept', 'p_value', 'r_value', 'std_err'])
+
+for crime in crimes:
+    df_monthly_crime_sum = pd.DataFrame([crime_data.droplevel([0,1]).groupby('offence').sum().loc[crime,:], df_heathrow['tmax_degC']]).T
+    df_monthly_crime_sum.index = ['-'.join(i) for i in df_scatter_error.index]
+    # 
+    X = df_monthly_crime_sum['tmax_degC']
+    Y = df_monthly_crime_sum[crime]
+    slope, intercept, p_value, r_value, std_err = sps.linregress(X, Y)
+    df_monthly_reg.loc[crime] = [slope, intercept, p_value, r_value, std_err]
+```
+
+```{python}
+# finding statistically significant results
+df_monthly_reg_ss = df_monthly_reg[(df_monthly_reg['p_value'] < 0.05) & (df_monthly_reg['p_value']>=0)]
+df_monthly_reg_ss
+```
+
+```{python}
+crime = 'Shoplifting'
+df_scatter_error = pd.DataFrame([crime_data.droplevel([0,1]).groupby('offence').sum().loc[crime,:], df_heathrow['tmax_degC']]).T
+df_scatter_error['fitted'] = df_monthly_reg_ss.loc['Shoplifting'].slope*df_scatter_error['tmax_degC'] + df_monthly_reg_ss.loc['Shoplifting'].intercept
+```
+
+```{python}
+px.scatter(
+    df_scatter_error,
+    x='tmax_degC',
+    y=['Shoplifting'],
+    title='Shoplifting vs Max Temperature (degC)',
+    labels={'value': 'Crime Count', 'tmax_degC': 'Max Temperature (degC)'}
+).add_scatter(x=df_scatter_error['tmax_degC'], y=df_scatter_error['fitted'], name='Fitted')
+```
+
+```{python}
+crime = 'Possession of Drugs'
+df_scatter_error = pd.DataFrame([crime_data.droplevel([0,1]).groupby('offence').sum().loc[crime,:], df_heathrow['tmax_degC']]).T
+df_scatter_error['fitted'] = df_monthly_reg_ss.loc[crime].slope*df_scatter_error['tmax_degC'] + df_monthly_reg_ss.loc[crime].intercept
+```
+
+```{python}
+px.scatter(
+    df_scatter_error,
+    x='tmax_degC',
+    y=[crime],
+    title=crime+' vs Max Temperature (degC)',
+    labels={'value': 'Crime Count', 'tmax_degC': 'Max Temperature (degC)'}
+).add_scatter(x=df_scatter_error['tmax_degC'], y=df_scatter_error['fitted'], name='Fitted')
+```
+
+## Mapping Crimes on Temperature
+
+
+Based on the analysis above, we are going to plot the crime rate of 'Shoplifting' and 'Theft from a Motor Vehicle' on a heat map for 2011 and 2022, using the Mapper function developed for this analysis.
+
+```{python}
+from projtools.mapper import Mapper
+```
+
+Using the indexes from the Heathrow station dataframe, a threshold is used to find the high temperature months and the low temperature months using the maximum temperature of each month.
+
+```{python}
+# Define the threshold for high temperature
+threshold = df_heathrow['tmax_degC'].mean()
+
+# Split the data into high temperature and low temperature groups
+high_temp = df_heathrow[df_heathrow['tmax_degC'] > threshold]
+low_temp = df_heathrow[df_heathrow['tmax_degC'] <= threshold]
+
+# high temperature and low temperature indexes:
+# - high_temp.index
+# - low_temp.index
+
+df_crime_high_temp_months = crime_data.T[crime_data.T.index.isin(high_temp.index)].T
+df_crime_low_temp_months = crime_data.T[crime_data.T.index.isin(low_temp.index)].T
+```
+
+Below, you can see that when analysing shoplifting in 2011 and 2022, the crime rates have increased. One thing to note is that over 11 years, crime rates could increase due to other factors which aren't factored into this analysis.
+
+In both 2011 and 2022, the maps show a concentration of shoplifting incidents in what appears to be the central area of London. This could correlate with higher population densities, more retail stores, or tourist activity in these areas.
+
+```{python}
+crime = 'Shoplifting'
+year = '2011'
+
+borough_TfMV = pd.DataFrame(
+    df_crime_high_temp_months.loc[:,:,crime][year].groupby('borough').sum().T.sum(), 
+    columns=[crime]
+)
+Mapper(
+    df=borough_TfMV,
+    variable=crime, 
+    on='borough',
+    title=crime+' in '+year,
+    caption='London Datastore, 2014'
+)
+```
+
+```{python}
+crime = 'Shoplifting'
+year = '2022'
+
+borough_TfMV = pd.DataFrame(
+    df_crime_high_temp_months.loc[:,:,crime][year].groupby('borough').sum().T.sum(), 
+    columns=[crime]
+)
+Mapper(
+    df=borough_TfMV,
+    variable=crime, 
+    on='borough',
+    title=crime+' in '+year,
+    caption='London Datastore, 2014'
+)
+```
+
+The overall increase in darker shades from 2011 to 2022 suggests a city-wide increase in the number of thefts from motor vehicles.
+
+The central areas that were once the ligher have darkened, which could indicate unsuccessful interventions or changes in socioeconomic factors that have led to a increase in thefts.
+
+Some boroughs maintain a relatively darker shade in both maps, which may indicate persistent hotspots for vehicle-related thefts.
+
+```{python}
+crime = 'Theft from a Motor Vehicle'
+year = '2011'
+
+borough_TfMV = pd.DataFrame(
+    df_crime_high_temp_months.loc[:,:,crime][year].groupby('borough').sum().T.sum(), 
+    columns=[crime]
+)
+Mapper(
+    df=borough_TfMV,
+    variable=crime, 
+    on='borough',
+    title=crime+' in '+year,
+    caption='London Datastore, 2014'
+)
+```
+
+```{python}
+crime = 'Theft from a Motor Vehicle'
+year = '2022'
+
+borough_TfMV = pd.DataFrame(
+    df_crime_high_temp_months.loc[:,:,crime][year].groupby('borough').sum().T.sum(), 
+    columns=[crime]
+)
+Mapper(
+    df=borough_TfMV,
+    variable=crime, 
+    on='borough',
+    title=crime+' in '+year,
+    caption='London Datastore, 2014'
+)
+```

@@ -15,6 +15,7 @@ parts:
     - file: pages/seasonal-changes
     - file: pages/linear-regression
     - file: pages/weather_mr
+    - file: pages/climate-change
   - caption: Usage
     chapters:
     - file: pages/multi_index.Rmd
